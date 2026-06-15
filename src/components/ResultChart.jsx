@@ -121,7 +121,7 @@ export default function ResultChart({ setsData }) {
     <div style={{ background: '#161b22', border: '1px solid #21262d', borderRadius: 8, padding: '16px' }}>
       <Title />
       {isEmpty ? (
-        <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#484f58', fontSize: 13 }}>
+        <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6e7681', fontSize: 16 }}>
           {getEmptyMessage(setsData?.[0]?.filters)}
         </div>
       ) : setsData.length === 1 ? (
