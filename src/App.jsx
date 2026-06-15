@@ -361,6 +361,9 @@ function HistoricalDataPage({ page, onNavigate }) {
                 setName={activeSet?.name}
               />
             </div>
+            <div style={{ marginBottom: 16 }}>
+              <ResultChart setsData={setsData} />
+            </div>
             <PitchTypeTable data={activeSetData?.pitchTypeData || []} outcomeData={activeSetData?.outcomeData} filters={activeFilters} />
             <OutcomeDistribution data={activeSetData?.outcomeData} filters={activeFilters} />
           </Content>
