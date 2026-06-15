@@ -125,12 +125,12 @@ function HistoricalDataPage({ page, onNavigate }) {
         year: year || 'ALL',
         pitcherId: pId,
         batterId: bId,
-        pitcherRole: pitcherRole || 'All',
-        pitchType: pitchTypes.join(','),
-        zone: zones.join(','),
-        pitcherHand: pitcherHands || '',
-        batterHand: batterHand || '',
       });
+      if (pitcherRole && pitcherRole !== 'All') params.set('pitcherRole', pitcherRole);
+      if (pitchTypes.length > 0) params.set('pitchType', pitchTypes.join(','));
+      if (zones.length > 0) params.set('zone', zones.join(','));
+      if (pitcherHands) params.set('pitcherHand', pitcherHands);
+      if (batterHand) params.set('batterHand', batterHand);
 
       if (outs && outs !== 'All') {
         params.set('outs', outs);
