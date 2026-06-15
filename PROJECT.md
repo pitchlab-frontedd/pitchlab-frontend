@@ -95,6 +95,7 @@ Content 區由上到下：
 
 | 縮寫 | 全名 | 說明 |
 |------|------|------|
+
 | **#** | Count | 該球種投球總數 |
 | **vs RHB** | vs Right-Handed Batter | 對右打者的投球數 |
 | **vs LHB** | vs Left-Handed Batter | 對左打者的投球數 |
@@ -170,7 +171,69 @@ Content 區由上到下：
 
 ## 改動紀錄
 
-### 2026-06-15
+### 2026-06-15 ～ 06-16
+
+**Pitch Sequence Analysis — 投球序列分析完整實作**
+
+#### 資料庫重建（SQLite + PostgreSQL）
+
+- **問題**：原本資料庫缺少 `game_pk`、`at_bat_number`、`pitch_number` 三個欄位，無法做同打席序列分析
+- **做法**：重新爬取 2023–2025 三年資料（pybaseball + local cache），加入上述三欄，存入 SQLite（`baseball_data.db`），再上傳至 Render PostgreSQL
+- **結果**：2,199,368 筆投球資料，新增索引 `idx_seq ON pitches(game_pk, at_bat_number, pitch_number)` 加速自連查詢
+- **處理儲存問題**：PostgreSQL 因多次 DELETE/INSERT 累積 806 MB dead tuples，執行 `VACUUM FULL pitches` 後降回 7.8 MB，才能完成完整上傳
+
+#### 後端新增 endpoints
+
+| Endpoint | 說明 |
+|----------|------|
+| `/api/next-pitch-zones` | 使用 SQL self-join 找同打席下一球，回傳各 zone 的投球次數、機率、球種分布、結果分布（聚合） |
+| `/api/next-pitch-locations` | 同樣 self-join 邏輯，但回傳個別投球的 `plate_x`/`plate_z` 連續座標（最多 3000 筆），供散布圖使用 |
+
+Self-join 條件：
+```sql
+n.game_pk = c.game_pk AND n.at_bat_number = c.at_bat_number
+AND n.pitch_number = c.pitch_number + 1
+AND n.pitcher = c.pitcher AND n.batter = c.batter
+```
+
+#### 前端新增 components
+
+**`NextPitchProbabilityHeatmap.jsx`**
+- 與 ZoneHeatmap 相同 SVG layout（CELL=62, 5×5 grid）
+- 顏色：藍色 `rgba(88,166,255, α)`，使用相對正規化（最高機率 zone = 最深色）
+- Tooltip：zone 號碼、次數、%、最常見球種、最常見結果、前 4 球種/結果明細
+- 上方顯示 Selected / Next（有效） / Terminal（打席最後一球，無下一球）數量
+
+**`ActualNextPitchLocations.jsx`**
+- SVG scatter plot，每個點 = 一顆實際下一球的 `plate_x`/`plate_z` 座標
+- 座標映射：固定 sz_top=3.4 / sz_bot=1.6，讓 strike zone overlay 與 ZoneHeatmap 對齊
+- 點的顏色依球種（FF=藍、SI=綠、SL=紅、CU=紫...）
+- Tooltip：日期、投手、前一球（球種/結果/球數/zone）、下一球（球種/速度/結果/精確座標）
+- 下方顯示前 6 個球種 legend
+- 空狀態：顯示說明文字
+
+#### 頁面 Layout 調整
+
+```
+┌──────────────┬──────────────────┬──────────────────────┐
+│ Zone Heatmap │ Next Pitch Prob. │ Actual Next Pitch    │
+│ (Out/Foul/   │ Heatmap          │ Locations            │
+│  Whiff%)     │ (zone prob.)     │ (scatter plot)       │
+└──────────────┴──────────────────┴──────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│ Pitch Outcomes (Ball / Called Strike / Swinging Strike)  │
+└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│ Pitch Type Table  /  Outcome Distribution                │
+└──────────────────────────────────────────────────────────┘
+```
+
+- **Commits（frontend）**：`716e9b4`、`e481557`、`b2c5fd1`
+- **Commits（backend）**：`22415f4`、`670b675`
+
+---
+
+### 2026-06-12
 
 **Bug Fix：投手對打者無對決資料時的空狀態訊息**
 
@@ -188,6 +251,52 @@ Content 區由上到下：
 | 有選人，**無資料**（如大谷 vs Judge） | Summary Stats 消失、Pitch Tracking 顯示「Select a pitcher or batter...」（誤導） | Summary Stats 顯示 6 張灰色 `—` 空牌、Pitch Tracking 顯示「No data found for the selected combination. Try adjusting the filters or choosing a different matchup.」 |
 
 - **Commit**：`85e8884`
+
+---
+
+---
+
+### Pitch Sequence Analysis — 投球序列分析
+
+> **這是歷史資料分析，不是預測模型。**  
+> 分析的是：在特定條件（觸發球）之後，投手實際投了什麼球、投到哪裡。
+
+整個區塊由三張圖從左到右組成，代表一個完整的分析流程：
+
+```
+[Trigger Pitch Heatmap] → [Next Pitch Probability Heatmap] → [Actual Next Pitch Locations]
+```
+
+---
+
+#### Trigger Pitch Heatmap（觸發球熱力圖）
+
+- **是什麼：** 以 Zone Heatmap 格式顯示「觸發球」的投球分布
+- **觸發球定義：** 使用者在 Filter Panel 選定的球（例如：第一球、特定球種、特定球數下的球）
+- **顯示內容：** 各 zone 中觸發球出現的次數或比例，顏色越深代表越常投到該區域
+- **用途：** 確認觸發球的樣本是哪些球，是分析序列的起點
+
+#### Next Pitch Probability Heatmap（下一球機率熱力圖）
+
+- **是什麼：** 以 Zone Heatmap 格式顯示觸發球之後，下一球落在各 zone 的**歷史機率**
+- **顯示內容：** 每個 zone 的數字 = 觸發球後下一球投到該 zone 的次數 ÷ 觸發球總數
+- **例如：** 觸發球是右打者外角低速球，下一球有 40% 機率投到內角高區
+- **重要提醒：** 這是歷史頻率，不是預測值；樣本數少時數字僅供參考
+
+#### Actual Next Pitch Locations（下一球實際落點散布圖）
+
+- **是什麼：** 以 Scatter Plot 顯示每一個「下一球」的實際落點（plate_x / plate_z 連續座標）
+- **顯示內容：** 每個點代表一顆實際的下一球，座標對應投手視角的本壘板位置
+- **顏色區分：** 可依球種（pitch type）或結果（description）著色
+- **用途：** 補足 zone heatmap 看不到的落點細節（例如邊角球、低出的幅度）
+
+---
+
+#### 三張圖的閱讀邏輯
+
+1. 先看 **Trigger Pitch Heatmap** — 我選的觸發球都投在哪些 zone？
+2. 再看 **Next Pitch Probability** — 觸發球之後，投手慣性往哪個 zone 走？
+3. 最後看 **Actual Scatter** — 那些下一球的精確落點在哪裡？是邊角球還是中間球？
 
 ---
 
