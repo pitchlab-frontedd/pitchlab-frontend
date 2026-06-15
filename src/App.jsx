@@ -5,6 +5,7 @@ import SetTabs from './components/SetTabs'
 import SummaryStats from './components/SummaryStats'
 import ZoneHeatmap from './components/ZoneHeatmap'
 import NextPitchProbabilityHeatmap from './components/NextPitchProbabilityHeatmap'
+import ActualNextPitchLocations from './components/ActualNextPitchLocations'
 import ResultChart from './components/ResultChart'
 import PitchTypeTable from './components/PitchTypeTable'
 import OutcomeDistribution from './components/OutcomeDistribution'
@@ -41,6 +42,7 @@ const EMPTY_SET_DATA = {
   zoneData: {},
   outcomeData: { total: 0, outcomes: [], pitchTypeOutcomes: [] },
   nextPitchData: EMPTY_NEXT_PITCH_DATA,
+  nextPitchLocations: [],
 }
 
 const readCachedOptions = (key) => {
@@ -171,13 +173,19 @@ function HistoricalDataPage({ page, onNavigate }) {
         .then(res => res.ok ? res.json() : EMPTY_NEXT_PITCH_DATA)
         .catch(() => EMPTY_NEXT_PITCH_DATA);
 
+      const nextPitchLocationsPromise = fetch(`${API_BASE_URL}/api/next-pitch-locations?${params.toString()}`, {
+        signal: controller.signal,
+      })
+        .then(res => res.ok ? res.json() : [])
+        .catch(() => []);
+
       if (!response.ok) {
         const fallback = await fetch(`${API_BASE_URL}/api/pitches?${params.toString()}`, {
           signal: controller.signal,
         });
         const pitches = await fallback.json();
         const rows = Array.isArray(pitches) ? pitches : [];
-        const [outcomeData, nextPitchData] = await Promise.all([outcomesPromise, nextPitchPromise]);
+        const [outcomeData, nextPitchData, nextPitchLocations] = await Promise.all([outcomesPromise, nextPitchPromise, nextPitchLocationsPromise]);
         return {
           total: rows.length,
           summaryStats: getSummaryStats(rows),
@@ -186,10 +194,11 @@ function HistoricalDataPage({ page, onNavigate }) {
           zoneData: aggregateByZone(rows),
           outcomeData,
           nextPitchData,
+          nextPitchLocations,
         };
       }
-      const [data, outcomeData, nextPitchData] = await Promise.all([response.json(), outcomesPromise, nextPitchPromise]);
-      return data && typeof data === 'object' ? { ...data, outcomeData, nextPitchData } : EMPTY_SET_DATA;
+      const [data, outcomeData, nextPitchData, nextPitchLocations] = await Promise.all([response.json(), outcomesPromise, nextPitchPromise, nextPitchLocationsPromise]);
+      return data && typeof data === 'object' ? { ...data, outcomeData, nextPitchData, nextPitchLocations } : EMPTY_SET_DATA;
     };
 
     const fetchAllSummaries = async () => {
@@ -266,6 +275,7 @@ function HistoricalDataPage({ page, onNavigate }) {
         zoneData: summary.zoneData || {},
         outcomeData: summary.outcomeData || EMPTY_SET_DATA.outcomeData,
         nextPitchData: summary.nextPitchData || EMPTY_NEXT_PITCH_DATA,
+        nextPitchLocations: summary.nextPitchLocations || [],
       };
     });
   }, [sets, setSummaries]);
@@ -344,7 +354,12 @@ function HistoricalDataPage({ page, onNavigate }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 16 }}>
               <ZoneHeatmap zoneData={activeSetData?.zoneData} totalPitches={activeSetData?.total || 0} setColor={activeSet?.color} setName={activeSet?.name} />
               <NextPitchProbabilityHeatmap nextPitchData={activeSetData?.nextPitchData} setColor={activeSet?.color} setName={activeSet?.name} />
-              <ResultChart setsData={setsData} />
+              <ActualNextPitchLocations
+                nextPitchLocations={activeSetData?.nextPitchLocations || []}
+                selectedCount={activeSetData?.nextPitchData?.selected_count || 0}
+                setColor={activeSet?.color}
+                setName={activeSet?.name}
+              />
             </div>
             <PitchTypeTable data={activeSetData?.pitchTypeData || []} outcomeData={activeSetData?.outcomeData} filters={activeFilters} />
             <OutcomeDistribution data={activeSetData?.outcomeData} filters={activeFilters} />
