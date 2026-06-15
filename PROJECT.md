@@ -166,8 +166,24 @@ Content 區由上到下：
 
 ---
 
+---
+
+## 改動紀錄
+
+### 2026-06-15
+
+**Bug Fix：投手對打者無對決資料時的空狀態訊息**
+
+- **問題**：同時選了投手＋打者但兩人從未對決（如大谷翔平 vs Aaron Judge），畫面顯示誤導性訊息 "Select a pitcher or batter to view pitch tracking."，且 Summary Stats 整個消失。
+- **修改檔案**：
+  - `src/components/PitchTypeTable.jsx` — 加入 `hasSelection` 判斷，區分「未選人」vs「有選人但無資料」，顯示不同提示訊息
+  - `src/components/SummaryStats.jsx` — 有選人但無資料時改為顯示 6 張灰色 `—` 空牌，而非整個消失
+  - `src/App.jsx` — 傳 `activeFilters` prop 給 SummaryStats 供判斷用
+- **Commit**：`85e8884`
+
+---
+
 ## 待補充
 
 - UI/UX 優化規劃
-- 已知 Bug 列表
 - 部署流程
