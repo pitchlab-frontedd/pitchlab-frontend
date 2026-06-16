@@ -171,7 +171,7 @@ Content 區由上到下：
 
 ## 改動紀錄
 
-### 2026-06-15 ～ 06-16
+### 2026-06-12 ～ 06-16
 
 **Pitch Sequence Analysis — 投球序列分析完整實作**
 
@@ -271,24 +271,97 @@ AND n.pitcher = c.pitcher AND n.batter = c.batter
 
 #### Trigger Pitch Heatmap（觸發球熱力圖）
 
+即頁面上的 **Strike Zone Heatmap**，功能和第一張圖相同，但在序列分析語境中它扮演「觸發球」的角色。
+
 - **是什麼：** 以 Zone Heatmap 格式顯示「觸發球」的投球分布
 - **觸發球定義：** 使用者在 Filter Panel 選定的球（例如：第一球、特定球種、特定球數下的球）
 - **顯示內容：** 各 zone 中觸發球出現的次數或比例，顏色越深代表越常投到該區域
 - **用途：** 確認觸發球的樣本是哪些球，是分析序列的起點
 
+**Metric 切換按鈕（右上角）：**
+
+| 按鈕 | 說明 | Hover tooltip |
+|------|------|--------------|
+| Out% | 該 zone 造成出局（in_play_out）的比率 | `Out rate by zone.` |
+| Foul% | 該 zone 造成界外球（foul）的比率 | `Foul rate by zone.` |
+| Whiff% | 該 zone 造成揮空（swinging_strike）的比率 | `Whiff rate by zone.` |
+
+**格子 hover tooltip：**
+
+| Metric | tooltip 內容 |
+|--------|------------|
+| Out% | `n=142`（該 zone 投球總數） |
+| Foul% | `n=142`（該 zone 投球總數） |
+| Whiff% | `sw=87`（該 zone 揮棒總數，不含稱好球） |
+
+---
+
 #### Next Pitch Probability Heatmap（下一球機率熱力圖）
 
 - **是什麼：** 以 Zone Heatmap 格式顯示觸發球之後，下一球落在各 zone 的**歷史機率**
-- **顯示內容：** 每個 zone 的數字 = 觸發球後下一球投到該 zone 的次數 ÷ 觸發球總數
+- **顯示內容：** 每個 zone 的數字 = 觸發球後下一球投到該 zone 的次數 ÷ 有效下一球總數
+- **顏色：** 藍色，相對正規化——最高機率的 zone 最深，其他 zone 依比例調整，實際 % 顯示在格內
 - **例如：** 觸發球是右打者外角低速球，下一球有 40% 機率投到內角高區
 - **重要提醒：** 這是歷史頻率，不是預測值；樣本數少時數字僅供參考
 
+**上方計數器：**
+```
+Selected: 142    Next: 103    Terminal: 39
+```
+- `Selected`：符合 filter 的觸發球總數
+- `Next`：成功找到同打席下一球的數量（有效樣本）
+- `Terminal`：觸發球是打席最後一球（無下一球），排除在外
+
+**格子 hover tooltip：**
+```
+Zone 5
+Count: 28 · 27.2%
+Top pitch: FF
+Top result: called_strike
+──────────────
+PITCH TYPES
+FF: 14
+SL: 8
+CH: 6
+──────────────
+RESULTS
+called_strike: 12
+ball: 9
+swinging_strike: 7
+```
+
+---
+
 #### Actual Next Pitch Locations（下一球實際落點散布圖）
 
-- **是什麼：** 以 Scatter Plot 顯示每一個「下一球」的實際落點（plate_x / plate_z 連續座標）
-- **顯示內容：** 每個點代表一顆實際的下一球，座標對應投手視角的本壘板位置
-- **顏色區分：** 可依球種（pitch type）或結果（description）著色
-- **用途：** 補足 zone heatmap 看不到的落點細節（例如邊角球、低出的幅度）
+- **是什麼：** 以 Scatter Plot 顯示每一個「下一球」的實際落點（`plate_x` / `plate_z` 連續座標）
+- **顯示內容：** 每個點代表一顆實際的下一球，座標對應捕手視角的本壘板位置（正 x = 右側）
+- **顏色：** 依球種著色（FF=藍、SI=綠、SL=紅、CU=紫、FC=黃、CH=橘紅 等）
+- **座標映射：** 使用固定 sz_top=3.4 / sz_bot=1.6，讓 strike zone 方框與 ZoneHeatmap 對齊
+- **用途：** 補足 zone heatmap 看不到的落點細節（邊角球、低出幅度）
+
+**上方計數器：** 同 Next Pitch Probability Heatmap（Selected / Next / Terminal）
+
+**下方 legend：** 顯示該次查詢中最多前 6 個球種的顏色對應及各自點數
+
+**點 hover tooltip：**
+```
+2025-08-15
+Gerrit Cole
+──────────────
+PREVIOUS PITCH
+Type: SL
+Zone: 14
+Count: 0-2
+Result: ball
+──────────────
+NEXT PITCH
+Type: FF
+Zone: 5
+Velo: 96.2 mph
+Result: called_strike
+plate_x: 0.12 · plate_z: 2.81
+```
 
 ---
 
