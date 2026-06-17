@@ -12,18 +12,18 @@ const STRIKE_SIZE = CELL * 3
 const MID = SIZE / 2
 const STRIKE_END = STRIKE_START + STRIKE_SIZE
 
-// Fixed typical MLB strike zone bounds (feet). sz_top/sz_bot not stored in DB.
-const SZ_TOP = 3.4
-const SZ_BOT = 1.6
-const STRIKE_HEIGHT = SZ_TOP - SZ_BOT
-const Z_MIN = SZ_BOT - STRIKE_HEIGHT / 3   // ~1.0
-const Z_MAX = SZ_TOP + STRIKE_HEIGHT / 3   // ~4.0
-
+// X bounds are fixed (plate width doesn't vary by batter)
 const STRIKE_X_MIN = -0.83
 const STRIKE_X_MAX = 0.83
 const STRIKE_WIDTH = STRIKE_X_MAX - STRIKE_X_MIN
-const X_MIN = STRIKE_X_MIN - STRIKE_WIDTH / 3  // ~-1.383
-const X_MAX = STRIKE_X_MAX + STRIKE_WIDTH / 3  // ~1.383
+const X_MIN = STRIKE_X_MIN - STRIKE_WIDTH / 3
+const X_MAX = STRIKE_X_MAX + STRIKE_WIDTH / 3
+
+// Z bounds are computed dynamically from zone data (see useMemo below).
+// Fallback values for when sample is too small.
+const SZ_TOP_DEFAULT = 3.4
+const SZ_BOT_DEFAULT = 1.6
+const MIN_ZONE_SAMPLE = 5
 
 const PITCH_TYPE_COLORS = {
   FF: '#58a6ff',
@@ -43,14 +43,13 @@ const PITCH_TYPE_COLORS = {
 }
 const FALLBACK_COLOR = '#8b949e'
 
+function mean(arr) {
+  return arr.reduce((s, v) => s + v, 0) / arr.length
+}
+
 function mapToSvgX(plateX) {
   const ratio = (plateX - X_MIN) / (X_MAX - X_MIN)
   return Math.max(0, Math.min(SIZE, ratio * SIZE))
-}
-
-function mapToSvgY(plateZ) {
-  const ratio = (plateZ - Z_MIN) / (Z_MAX - Z_MIN)
-  return Math.max(0, Math.min(SIZE, SIZE - ratio * SIZE))
 }
 
 function getPitchColor(pitchType) {
@@ -72,6 +71,36 @@ export default function ActualNextPitchLocations({ nextPitchLocations = [], sele
     return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6)
   }, [nextPitchLocations])
 
+  // Derive sz_top / sz_bot from zone data so the overlay aligns with the actual
+  // batter's strike zone (e.g. Aaron Judge's sz_top is ~4.1, not the average 3.4).
+  // Top-row zones 1-3 anchor sz_top; bottom-row zones 7-9 anchor sz_bot.
+  const { zMin, zMax, dataDriven } = useMemo(() => {
+    const zv = (p) => p.plate_z != null ? Number(p.plate_z) : NaN
+
+    const topZ = nextPitchLocations
+      .filter(p => [1, 2, 3].includes(Number(p.next_zone)))
+      .map(zv).filter(v => !isNaN(v))
+
+    const botZ = nextPitchLocations
+      .filter(p => [7, 8, 9].includes(Number(p.next_zone)))
+      .map(zv).filter(v => !isNaN(v))
+
+    const szTop = topZ.length >= MIN_ZONE_SAMPLE ? mean(topZ) : SZ_TOP_DEFAULT
+    const szBot = botZ.length >= MIN_ZONE_SAMPLE ? mean(botZ) : SZ_BOT_DEFAULT
+    const strikeHeight = szTop - szBot
+
+    return {
+      zMin: szBot - strikeHeight / 3,
+      zMax: szTop + strikeHeight / 3,
+      dataDriven: topZ.length >= MIN_ZONE_SAMPLE && botZ.length >= MIN_ZONE_SAMPLE,
+    }
+  }, [nextPitchLocations])
+
+  const mapToSvgY = (plateZ) => {
+    const ratio = (plateZ - zMin) / (zMax - zMin)
+    return Math.max(0, Math.min(SIZE, SIZE - ratio * SIZE))
+  }
+
   const isEmpty = validNextCount === 0
 
   return (
@@ -91,7 +120,7 @@ export default function ActualNextPitchLocations({ nextPitchLocations = [], sele
       </div>
 
       {/* Sample size summary */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 8, flexWrap: 'wrap' }}>
         <Text style={{ fontSize: 11, color: '#484f58', fontFamily: 'JetBrains Mono, monospace' }}>
           Selected: <span style={{ color: '#e6edf3' }}>{selectedCount}</span>
         </Text>
@@ -100,6 +129,9 @@ export default function ActualNextPitchLocations({ nextPitchLocations = [], sele
         </Text>
         <Text style={{ fontSize: 11, color: '#484f58', fontFamily: 'JetBrains Mono, monospace' }}>
           Terminal: <span style={{ color: '#484f58' }}>{excludedCount}</span>
+        </Text>
+        <Text style={{ fontSize: 11, color: dataDriven ? '#3fb950' : '#484f58', fontFamily: 'JetBrains Mono, monospace' }}>
+          {dataDriven ? 'sz: data-driven' : 'sz: avg'}
         </Text>
       </div>
 
